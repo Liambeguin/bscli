@@ -116,7 +116,9 @@ class BetaApi:
 		for unseen in ep_list['shows']:
 			unseen_episodes = []
 			for episode in unseen['unseen']:
-				unseen_episodes.append({'code':episode['code'], 'id':episode['id']})
+				unseen_episodes.append({'code':episode['code'],
+					'id':episode['id'],
+					'rate':float(episode['note']['mean'])/5.0*100})
 				if single:
 					break
 
