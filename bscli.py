@@ -138,20 +138,21 @@ def main():
 	"""Interract with the BetaSeries API """
 
 	__doc__ = """Usage:
-	%(name)s [options] unseen [filter]
+	%(name)s [options] unseen
 	%(name)s -h | --help | --version
 
 Options:
- --version      Show version and exit
- -v, --verbose  Show debug information
- -s, --single   Only one episode
- -p, --plain    Print a machine readable output
- -h, --help     Show this help message and exit
+ --version             Show version and exit
+ -v, --verbose         Show debug information
+ -s, --single          Only one episode
+ -f, --filter FILTER   Filter output
+ -p, --plain           Print a machine readable output
+ -h, --help            Show this help message and exit
 
 
 """ % {'name': os.path.basename(__file__)}
 
-	arguments = docopt(__doc__)
+	arguments = docopt(__doc__, version="0.1")
 
 	conffile=os.path.basename(__file__) + ".conf"
 
@@ -166,7 +167,7 @@ Options:
 		beta = BetaApi(conffile)
 
 		if arguments['unseen']:
-			ep_list = beta.get_unseen(single=arguments['--single'], filter_show=arguments['filter'])
+			ep_list = beta.get_unseen(single=arguments['--single'], filter_show=arguments['--filter'])
 
 		if arguments['--plain']:
 			for show in ep_list:
