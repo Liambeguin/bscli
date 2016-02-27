@@ -158,7 +158,7 @@ def main():
 	"""Interract with the BetaSeries API """
 
 	__doc__ = """Usage:
-	%(name)s [options] [-ps] [-f FILTER] unseen
+	%(name)s [options] [-ps] [-f FILTER] watchlist
 	%(name)s [options] [-n NOTE] viewed ID
 	%(name)s -h | --help | --version
 
@@ -188,7 +188,7 @@ Options:
 	try:
 		beta = BetaApi(conffile)
 
-		if arguments['unseen']:
+		if arguments['watchlist']:
 			ep_list = beta.get_unseen(single=arguments['--single'],
 					filter_show=arguments['--filter'])
 
