@@ -90,8 +90,7 @@ class BetaApi:
 			elif what == "post" :
 				ret = requests.post(self.baseurl + page, headers=heads, params=payload)
 			elif what == "delete" :
-				print "Not yet implemented, sorry ..."
-				quit()
+				ret = requests.delete(self.baseurl + page, headers=heads, params=payload)
 			else :
 				print "bad usage of _query_beta() method !"
 				quit()
@@ -112,12 +111,12 @@ class BetaApi:
 		ret = []
 		shows = []
 
-		ep_list = self._query_beta('episodes/list', {},  self.token).json()
+		ep_list = self._query_beta('episodes/list', {}, self.token, what="get").json()
 
 		for unseen in ep_list['shows']:
 			unseen_episodes = []
 			for episode in unseen['unseen']:
-				unseen_episodes.append(episode['code'])
+				unseen_episodes.append({'code':episode['code'], 'id':episode['id']})
 				if single:
 					break
 
@@ -133,13 +132,34 @@ class BetaApi:
 		return ret
 
 
+	def mark_viewed(self, episode_id, bulk=True, note=None):
+
+		payload = { 'id' : episode_id,
+				  'note' : note,
+				  'bulk' : bulk
+				  }
+
+		self.unmark_viewed(episode_id)
+
+		ret = self._query_beta('episodes/watched', payload, self.token, "post")
+
+		return ret
+
+	def unmark_viewed(self, episode_id):
+
+		payload = { 'id' : episode_id }
+		ret = self._query_beta('episodes/watched', payload, self.token, "delete")
+		return ret
+
+
 
 
 def main():
 	"""Interract with the BetaSeries API """
 
 	__doc__ = """Usage:
-	%(name)s [options] unseen
+	%(name)s [options] [-ps] [-f FILTER] unseen
+	%(name)s [options] [-n NOTE] viewed ID
 	%(name)s -h | --help | --version
 
 Options:
@@ -147,6 +167,7 @@ Options:
  -v, --verbose         Show debug information
  -s, --single          Only one episode
  -f, --filter FILTER   Filter output
+ -n, --note   NOTE     Give a note to a viewed episode
  -p, --plain           Print a machine readable output
  -h, --help            Show this help message and exit
 
@@ -162,18 +183,24 @@ Options:
 	else:
 		logger.setLevel(logging.INFO)
 
-	logger.debug('Arguments are: %s', arguments)
+	logger.debug('Arguments are: \n%s\n', arguments)
 
 	try:
 		beta = BetaApi(conffile)
 
 		if arguments['unseen']:
-			ep_list = beta.get_unseen(single=arguments['--single'], filter_show=arguments['--filter'])
+			ep_list = beta.get_unseen(single=arguments['--single'],
+					filter_show=arguments['--filter'])
 
-		if arguments['--plain']:
-			for show in ep_list:
-				for episode in show['episodes']:
-					print show['title'] + " " + episode
+			if arguments['--plain']:
+				for show in ep_list:
+					for episode in show['episodes']:
+						print str(episode['id']) + ":" + \
+								show['title'] + " " + episode['code']
+			else:
+				print ep_list
+		elif arguments['viewed']:
+			ep_list = beta.mark_viewed(arguments['ID'], note=arguments['NOTE'])
 
 
 	except KeyboardInterrupt:
