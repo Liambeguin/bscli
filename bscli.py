@@ -64,28 +64,16 @@ class BetaApi:
 		return options
 
 	def create_token(self):
-		payload={
-				'login': self.configuration['USER'],
+		payload={'login': self.configuration['USER'],
 				'password': self.configuration['PASSWORD']
 				}
-		heads={
-				'Accept': 'application/json',
-				'X-BetaSeries-Version': '2.1',
-				'X-BetaSeries-Key': self.configuration['KEY'],
-				}
 
-		r = requests.post(self.baseurl + 'members/auth', params=payload, headers=heads)
+		r = self._query_beta('members/auth', payload, what="post").json()
 
-		assert r.status_code == 200, "Bad HTTP status code: %s" % r.status_code
-		j = r.json()
-		error_list = j['errors']
-		for err in error_list:
-			log.error(str(err))
-		if not error_list:
-			return j['token']
+		return r['token']
 
 
-	def _query_beta(self, page, payload, token=None):
+	def _query_beta(self, page, payload, token=None, what=None):
 		"""Send a request to the BetaSeries"""
 
 		heads={
@@ -97,7 +85,20 @@ class BetaApi:
 			heads.update({"X-BetaSeries-Token": self.token})
 
 		try:
-			ret = requests.get(self.baseurl + page, headers=heads, params=payload)
+			if what == "get" :
+				ret = requests.get(self.baseurl + page, headers=heads, params=payload)
+			elif what == "post" :
+				ret = requests.post(self.baseurl + page, headers=heads, params=payload)
+			elif what == "delete" :
+				print "Not yet implemented, sorry ..."
+				quit()
+			else :
+				print "bad usage of _query_beta() method !"
+				quit()
+
+			if ret.json()['errors']:
+				for error in ret.json()['errors']:
+					print error
 
 		except (requests.exceptions.ReadTimeout,
 				requests.exceptions.ConnectTimeout,
