@@ -3,7 +3,7 @@
 # inspired by https://github.com/arcresu/flexget-debian
 
 
-import os
+import os, re
 import logging
 # this is not very pretty but meh..
 logging.basicConfig(format='%(levelname)s: %(message)s')
@@ -13,8 +13,62 @@ import requests, json
 from hashlib import md5
 from docopt import docopt
 
+from collections import namedtuple
 
-class BetaApi:
+class Episode():
+	"""
+	this is what the json looks like before going through __init__
+
+   	"id": 622936,
+   	"thetvdb_id": 5416091,
+   	"youtube_id": null,
+   	"title": "Flight 462: Part 11",
+   	"season": 1,
+   	"episode": 17,
+   	"show": {
+   		"id": 10277,
+   		"thetvdb_id": 290853,
+   		"title": "Fear the Walking Dead"
+   	},
+   	"code": "S01E17",
+   	"global": 17,
+   	"special": 1,
+   	"description": "",
+   	"date": "2016-02-28",
+   	"note": {
+   		"total": "12",
+   		"mean": "3.2500",
+   		"user": 0
+   	},
+   	"user": {
+   		"seen": false,
+   		"downloaded": false
+   	},
+   	"comments": "0",
+   	"subtitles": []
+
+	"""
+	def __init__(self, d):
+		self.__dict__ = d
+
+	def dump(self):
+		for key, value in self.__dict__.iteritems():
+			print key, ' : ', value
+
+	def viewed(self):
+		print self.user['seen']
+
+	def get_episode_id(self):
+		return self.id
+
+	def get_show_id(self):
+		return self.show['id']
+
+	def get_show_title(self):
+		return self.show['title']
+
+class BetaApi():
+
 
 	def __init__(self, conffile):
 
@@ -78,7 +132,7 @@ class BetaApi:
 
 		heads={
 				'Accept': 'application/json',
-				'X-BetaSeries-Version': '2.1',
+				'X-BetaSeries-Version': '2.3',
 				'X-BetaSeries-Key': self.configuration['KEY'],
 				}
 		if token:
@@ -111,7 +165,11 @@ class BetaApi:
 		ret = []
 		shows = []
 
-		ep_list = self._query_beta('episodes/list', {}, self.token, what="get").json()
+		payload = {
+				  'specials' : True,
+				  }
+
+		ep_list = self._query_beta('episodes/list', payload, self.token, what="get").json()
 
 		for unseen in ep_list['shows']:
 			unseen_episodes = []
@@ -138,10 +196,14 @@ class BetaApi:
 
 		payload = { 'id' : episode_id,
 				  'note' : note,
-				  'bulk' : bulk
+				  'bulk' : bulk,
 				  }
 
-		self.unmark_viewed(episode_id)
+		ret = self._query_beta('episodes/display', payload, self.token, "get")
+		ep = Episode(ret.json()['episode'])
+
+		if ep.user['seen']:
+			self.unmark_viewed(episode_id)
 
 		ret = self._query_beta('episodes/watched', payload, self.token, "post")
 
@@ -153,6 +215,28 @@ class BetaApi:
 		ret = self._query_beta('episodes/watched', payload, self.token, "delete")
 		return ret
 
+	def get_latest(self, show_id):
+		payload = { 'id' : show_id }
+		ret = self._query_beta('episodes/latest', payload, self.token, "get").json()
+		latest_ep = Episode(ret['episode'])
+		return latest_ep
+
+
+	def get_next(self, show_id):
+		payload = { 'id' : show_id }
+		ret = self._query_beta('episodes/next', payload, self.token, "get").json()
+		next_ep = Episode(ret['episode'])
+		return next_ep
+
+	def test(self, test):
+	#	ret = self._query_beta('episodes/display', {'id': '622936'} , self.token, "get")
+	#	ep = Episode(ret.json()['episode'])
+	#	ep.dump()
+		ep = self.get_next(test)
+		print ep.get_show_title()
+		print ep.get_show_id()
+		print ep.date
+
 
 
 
@@ -162,6 +246,7 @@ def main():
 	__doc__ = """Usage:
 	%(name)s [options] [-ps] [-f FILTER] watchlist
 	%(name)s [options] [-n NOTE] viewed ID
+	%(name)s [options] test <foo>
 	%(name)s -h | --help | --version
 
 Options:
@@ -169,7 +254,7 @@ Options:
  -v, --verbose         Show debug information
  -s, --single          Only one episode
  -f, --filter FILTER   Filter output
- -n, --note   NOTE     Give a note to a viewed episode
+ -n, --note NOTE       Give a note to a viewed episode
  -p, --plain           Print a machine readable output
  -h, --help            Show this help message and exit
 
@@ -201,8 +286,16 @@ Options:
 								show['title'] + " " + episode['code']
 			else:
 				print ep_list
-		elif arguments['viewed']:
-			ep_list = beta.mark_viewed(arguments['ID'], note=arguments['NOTE'])
+
+		if arguments['viewed']:
+			if re.search('^[0-9]{6}$', arguments['ID']):
+				ep_list = beta.mark_viewed(arguments['ID'], note=arguments['NOTE'])
+			else:
+				# use unseen list and grep episode id
+				print "Not yet implemented..."
+
+		if arguments['test']:
+			ep_list = beta.test(arguments['<foo>'])
 
 
 	except KeyboardInterrupt:
