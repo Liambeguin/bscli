@@ -15,39 +15,9 @@ from docopt import docopt
 
 from collections import namedtuple
 
+
+
 class Episode():
-	"""
-	this is what the json looks like before going through __init__
-
-   	"id": 622936,
-   	"thetvdb_id": 5416091,
-   	"youtube_id": null,
-   	"title": "Flight 462: Part 11",
-   	"season": 1,
-   	"episode": 17,
-   	"show": {
-   		"id": 10277,
-   		"thetvdb_id": 290853,
-   		"title": "Fear the Walking Dead"
-   	},
-   	"code": "S01E17",
-   	"global": 17,
-   	"special": 1,
-   	"description": "",
-   	"date": "2016-02-28",
-   	"note": {
-   		"total": "12",
-   		"mean": "3.2500",
-   		"user": 0
-   	},
-   	"user": {
-   		"seen": false,
-   		"downloaded": false
-   	},
-   	"comments": "0",
-   	"subtitles": []
-
-	"""
 	def __init__(self, d):
 		self.__dict__ = d
 
@@ -58,17 +28,29 @@ class Episode():
 	def viewed(self):
 		print self.user['seen']
 
-	def get_episode_id(self):
-		return self.id
-
 	def get_show_id(self):
 		return self.show['id']
 
 	def get_show_title(self):
 		return self.show['title']
 
-class BetaApi():
 
+class Event():
+	def __init__(self, d):
+		self.__dict__ = d
+
+	def dump(self):
+		for key, value in self.__dict__.iteritems():
+			print key, ' : ', value
+	def pprint(self):
+		text = re.sub("\</a\>","", self.html)
+		text = re.sub("\<.*\>","", text)
+
+		print self.date + " : " + self.user + " " + text
+
+
+
+class BetaApi():
 
 	def __init__(self, conffile):
 
@@ -124,6 +106,7 @@ class BetaApi():
 
 		r = self._query_beta('members/auth', payload, what="post").json()
 
+		logger.debug("TOKEN is : " +  r['token'])
 		return r['token']
 
 
@@ -160,36 +143,26 @@ class BetaApi():
 
 		return ret
 
-	def get_unseen(self, single=False, filter_show=None):
+###############################################################################
+#### EPISODES
+###############################################################################
 
-		ret = []
+	def get_unseen(self):
+
 		shows = []
-
-		payload = {
-				  'specials' : True,
-				  }
+		payload = { 'specials' : True, }
 
 		ep_list = self._query_beta('episodes/list', payload, self.token, what="get").json()
 
 		for unseen in ep_list['shows']:
 			unseen_episodes = []
 			for episode in unseen['unseen']:
-				unseen_episodes.append({'code':episode['code'],
-					'id':episode['id'],
-					'rate':float(episode['note']['mean'])/5.0*100})
-				if single:
-					break
+				unseen_episodes.append(Episode(episode))
 
 			shows.append({'title':unseen['title'], 'episodes':unseen_episodes})
 
-		if filter_show:
-			for i in shows:
-				if  filter_show.lower() in i['title'].lower():
-					ret.append(i)
-		else:
-			ret = shows
-
-		return ret
+		# returns a list of shows containing a title and a list of Episode objects
+		return shows
 
 
 	def mark_viewed(self, episode_id, bulk=True, note=None):
@@ -202,7 +175,7 @@ class BetaApi():
 		ret = self._query_beta('episodes/display', payload, self.token, "get")
 		ep = Episode(ret.json()['episode'])
 
-		if ep.user['seen']:
+		if ep.viewed():
 			self.unmark_viewed(episode_id)
 
 		ret = self._query_beta('episodes/watched', payload, self.token, "post")
@@ -210,10 +183,23 @@ class BetaApi():
 		return ret
 
 	def unmark_viewed(self, episode_id):
-
 		payload = { 'id' : episode_id }
 		ret = self._query_beta('episodes/watched', payload, self.token, "delete")
 		return ret
+
+###############################################################################
+#### SHOWS
+###############################################################################
+
+	def search_show(self, search):
+		payload = {
+				'title' : search,
+				'summary' : True,
+				}
+
+		ret = self._query_beta('shows/search', payload, self.token, "get").json()
+
+		return ret['shows']
 
 	def get_latest(self, show_id):
 		payload = { 'id' : show_id }
@@ -228,14 +214,44 @@ class BetaApi():
 		next_ep = Episode(ret['episode'])
 		return next_ep
 
+###############################################################################
+#### MEMBERS
+###############################################################################
+
+	def search_members(self, username):
+		payload = { 'login': username, }
+		ret = self._query_beta('members/search', payload, self.token, "get").json()
+
+		return ret['users'][0]
+
+	def get_timeline(self, userid, nbpp=100, since=None, types=None):
+		payload = {
+				'id': userid,
+				'nbpp': nbpp,
+				'since_id': since,
+				'types': types,
+				}
+		ret = self._query_beta('timeline/member', payload, self.token, "get").json()
+
+		event_list = []
+		for elt in ret['events']:
+			event_list.append(Event(elt))
+
+		return event_list
+
+
+
+###############################################################################
+#### MISC
+###############################################################################
+
 	def test(self, test):
-	#	ret = self._query_beta('episodes/display', {'id': '622936'} , self.token, "get")
-	#	ep = Episode(ret.json()['episode'])
-	#	ep.dump()
-		ep = self.get_next(test)
-		print ep.get_show_title()
-		print ep.get_show_id()
-		print ep.date
+		user = self.search_members(test)
+		event_list = self.get_timeline(user['id'])
+
+		for i in event_list:
+			i.pprint()
+
 
 
 
@@ -246,6 +262,7 @@ def main():
 	__doc__ = """Usage:
 	%(name)s [options] [-ps] [-f FILTER] watchlist
 	%(name)s [options] [-n NOTE] viewed ID
+	%(name)s [options] [--max NUMBER] timeline USERNAME
 	%(name)s [options] test <foo>
 	%(name)s -h | --help | --version
 
@@ -254,6 +271,7 @@ Options:
  -v, --verbose         Show debug information
  -s, --single          Only one episode
  -f, --filter FILTER   Filter output
+ --max NUMBER          Limit number of events in timeline
  -n, --note NOTE       Give a note to a viewed episode
  -p, --plain           Print a machine readable output
  -h, --help            Show this help message and exit
@@ -276,23 +294,49 @@ Options:
 		beta = BetaApi(conffile)
 
 		if arguments['watchlist']:
-			ep_list = beta.get_unseen(single=arguments['--single'],
-					filter_show=arguments['--filter'])
+			unseen_list = beta.get_unseen()
+			for show in unseen_list:
+				if arguments['--filter'] \
+						and arguments['--filter'] in show['title'].lower() \
+						or not arguments['--filter']:
 
-			if arguments['--plain']:
-				for show in ep_list:
 					for episode in show['episodes']:
-						print str(episode['id']) + ":" + \
-								show['title'] + " " + episode['code']
-			else:
-				print ep_list
+						if arguments['--plain']:
+							print str(episode.id) + ":" + \
+									show['title'] + " " + episode.code
+						else:
+							# Could use a pretty_print here
+							print show['title'] + " " + episode.code
+
+						if arguments['--single']: break
+
 
 		if arguments['viewed']:
 			if re.search('^[0-9]{6}$', arguments['ID']):
-				ep_list = beta.mark_viewed(arguments['ID'], note=arguments['NOTE'])
+				beta.mark_viewed(arguments['ID'], note=arguments['--note'])
 			else:
-				# use unseen list and grep episode id
-				print "Not yet implemented..."
+				ep = []
+				unseen_list = beta.get_unseen()
+				for show in unseen_list:
+					for episode in show['episodes']:
+						if arguments['ID'].strip().lower() in show['title'].lower():
+							ep.append(episode)
+
+				if len(ep) > 1:
+					print("Please try again with one of these codes")
+					for i in ep:
+						print str(i.id) + ":" + i.show['title'] + i.code
+				else:
+					print ep[0].id
+					beta.mark_viewed(ep[0].id, note=arguments['--note'])
+
+		# TODO if no USERNAME is given use /timeline/friends instead
+		if arguments['timeline']:
+			user = beta.search_members(arguments['USERNAME'])
+			event_list = beta.get_timeline(user['id'], nbpp=arguments['--max'] )
+
+			for i in event_list:
+				i.pprint()
 
 		if arguments['test']:
 			ep_list = beta.test(arguments['<foo>'])
