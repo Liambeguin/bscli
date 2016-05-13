@@ -14,39 +14,59 @@ from hashlib import md5
 from docopt import docopt
 
 from collections import namedtuple
+import textwrap
+import string
 
 
 
 class Episode():
-	def __init__(self, d):
-		self.__dict__ = d
+	def __init__(self, name, code, title, note, desc, ep_id):
+		# name is show name + code
+		self.name = name
+		self.code = code
+		# title is the episode's name
+		self.title = title
+		self.note = note
+		self.description = desc
+		self.beta_id = str(ep_id)
+		self.seen = False
 
-	def dump(self):
-		for key, value in self.__dict__.iteritems():
-			print key, ' : ', value
+	def pprint(self):
+		print self.name + " (" + self.title + ")"
+		print "    note: " + self.note
+		print "    description: " + self.description
+		print "    id: " + self.beta_id
 
-	def viewed(self):
-		print self.user['seen']
+	def get_description(self, width=80):
+		print textwrap.fill(self.description)
 
-	def get_show_id(self):
-		return self.show['id']
 
-	def get_show_title(self):
-		return self.show['title']
+class Show():
+	def __init__(self, title, ep_list):
+		self.name = title
+		self.sname = self.strip_name(title)
+		self.episodes = ep_list
+		self.count = str(len(ep_list))
+		self.next = self.strip_name(self.episodes[0].name)
+
+	def pprint(self):
+		print self.name
+		for i in self.episodes:
+			print "    " + i.name + " (" + i.title + ")"
+
+	def strip_name(self, name):
+		stripped  = ''.join(filter(lambda x:x in string.printable, name))
+		stripped = stripped.replace("'", "")
+		return stripped
 
 
 class Event():
-	def __init__(self, d):
-		self.__dict__ = d
+	def __init__(self, user, description, date, type):
+		self.user = user
+		self.description = "[ " + date + " ]:  " + user + " " + re.sub(r'(<.*">)(.*)(</a>)', r'\2', description)
+		self.date = date
+		self.type = type
 
-	def dump(self):
-		for key, value in self.__dict__.iteritems():
-			print key, ' : ', value
-	def pprint(self):
-		text = re.sub("\</a\>","", self.html)
-		text = re.sub("\<.*\>","", text)
-
-		print self.date + " : " + self.user + " " + text
 
 
 
@@ -55,7 +75,6 @@ class BetaApi():
 	def __init__(self, conffile):
 
 		self.baseurl = "http://api.betaseries.com/"
-
 		config = os.path.expanduser('~/.' + conffile)
 
 		if not os.path.exists(config):
@@ -74,8 +93,8 @@ class BetaApi():
 
 		logger.debug("configuration file is %s", config)
 		self.configuration = self._parse_config(config)
-
 		self.token = self.create_token()
+
 
 	def _parse_config(self, filename):
 		"""Parse the configuration file"""
@@ -83,21 +102,16 @@ class BetaApi():
 		options = {}
 		f = open(filename)
 		for line in f:
-			# First, remove comments:
 			if '#' in line:
-				# split on comment char, keep only the part before
 				line, comment = line.split('#', 1)
-				# Second, find lines with an option=value:
 			if '=' in line:
-				# split on option char:
 				option, value = line.split('=', 1)
-				# strip spaces quotes and newline
 				option = option.strip()
 				value = value.strip(" \"\n")
-				# store in dictionary:
 				options[option] = value
 		f.close()
 		return options
+
 
 	def create_token(self):
 		payload={'login': self.configuration['USER'],
@@ -143,54 +157,59 @@ class BetaApi():
 
 		return ret
 
-###############################################################################
-#### EPISODES
-###############################################################################
-
-	def get_unseen(self):
+	#
+	# EPISODES
+	#
+	def get_watchlist(self):
 
 		shows = []
 		payload = { 'specials' : True, }
 
-		ep_list = self._query_beta('episodes/list', payload, self.token, what="get").json()
+		ret = self._query_beta('episodes/list', payload, self.token, what="get").json()
 
-		for unseen in ep_list['shows']:
-			unseen_episodes = []
-			for episode in unseen['unseen']:
-				unseen_episodes.append(Episode(episode))
+		shows = []
+		for show in ret['shows']:
+			ep_list = []
+			for unseen_episode in show['unseen']:
+				ep_list.append(Episode(
+					show['title'] + " " + unseen_episode['code'],
+					unseen_episode['code'],
+					unseen_episode['title'],
+					unseen_episode['note']['mean'],
+					unseen_episode['description'],
+					unseen_episode['id']))
 
-			shows.append({'title':unseen['title'], 'episodes':unseen_episodes})
+			shows.append(Show(show['title'], ep_list))
 
-		# returns a list of shows containing a title and a list of Episode objects
 		return shows
 
 
-	def mark_viewed(self, episode_id, bulk=True, note=None):
+	def mark_episode_as(self, seen, episode_id, bulk=True, note=None):
 
-		payload = { 'id' : episode_id,
-				  'note' : note,
-				  'bulk' : bulk,
-				  }
+		if not re.search('^[0-9]{6}$', episode_id):
+			raise("Bad episode ID!")
 
+		payload = { 'id' : episode_id, 'note' : note, 'bulk' : bulk }
 		ret = self._query_beta('episodes/display', payload, self.token, "get")
-		ep = Episode(ret.json()['episode'])
+		ep = ret.json()['episode']
 
-		if ep.viewed():
-			self.unmark_viewed(episode_id)
+		if seen and not ep['user']['seen']:
+			logger.debug('marking %s as seen' %(episode_id))
+			self._query_beta('episodes/watched', payload, self.token, "post")
+		elif not seen and ep['user']['seen']:
+			logger.debug('marking %s as unseen' %(episode_id))
+			payload = { 'id' : episode_id }
+			self._query_beta('episodes/watched', payload, self.token, "delete")
+		else:
+			logger.debug('%s already marked as asked' %(episode_id))
 
-		ret = self._query_beta('episodes/watched', payload, self.token, "post")
 
-		return ret
 
-	def unmark_viewed(self, episode_id):
-		payload = { 'id' : episode_id }
-		ret = self._query_beta('episodes/watched', payload, self.token, "delete")
-		return ret
 
-###############################################################################
-#### SHOWS
-###############################################################################
 
+	#
+	# SHOWS
+	#
 	def search_show(self, search):
 		payload = {
 				'title' : search,
@@ -214,16 +233,19 @@ class BetaApi():
 		next_ep = Episode(ret['episode'])
 		return next_ep
 
-###############################################################################
-#### MEMBERS
-###############################################################################
 
+
+
+	#
+	# MEMBERS
+	#
 	def search_members(self, username):
 		payload = { 'login': username, }
 		ret = self._query_beta('members/search', payload, self.token, "get").json()
 
 		return ret['users'][0]
 
+	# TODO: add something to get the whole timeline
 	def get_timeline(self, userid, nbpp=100, since=None, types=None):
 		payload = {
 				'id': userid,
@@ -235,22 +257,15 @@ class BetaApi():
 
 		event_list = []
 		for elt in ret['events']:
-			event_list.append(Event(elt))
+			event_list.append(Event(
+					type=elt['type'],
+					description=elt['html'],
+					user=elt['user'],
+					date=elt['date']))
 
 		return event_list
 
 
-
-###############################################################################
-#### MISC
-###############################################################################
-
-	def test(self, test):
-		user = self.search_members(test)
-		event_list = self.get_timeline(user['id'])
-
-		for i in event_list:
-			i.pprint()
 
 
 
@@ -260,26 +275,21 @@ def main():
 	"""Interract with the BetaSeries API """
 
 	__doc__ = """Usage:
-	%(name)s [options] [-ps] [-f FILTER] watchlist
-	%(name)s [options] [-n NOTE] viewed ID
+	%(name)s [options] [-a] [watchlist|w]
 	%(name)s [options] [--max NUMBER] timeline USERNAME
-	%(name)s [options] test <foo>
 	%(name)s -h | --help | --version
 
 Options:
  --version             Show version and exit
  -v, --verbose         Show debug information
- -s, --single          Only one episode
- -f, --filter FILTER   Filter output
+ -a, --all             Show all episodes
  --max NUMBER          Limit number of events in timeline
- -n, --note NOTE       Give a note to a viewed episode
- -p, --plain           Print a machine readable output
  -h, --help            Show this help message and exit
 
 
 """ % {'name': os.path.basename(__file__)}
 
-	arguments = docopt(__doc__, version="0.1")
+	arguments = docopt(__doc__, version="0.2")
 
 	conffile=os.path.basename(__file__) + ".conf"
 
@@ -290,65 +300,34 @@ Options:
 
 	logger.debug('Arguments are: \n%s\n', arguments)
 
-	try:
-		beta = BetaApi(conffile)
+	beta = BetaApi(conffile)
 
-		if arguments['watchlist']:
-			unseen_list = beta.get_unseen()
-			for show in unseen_list:
-				if arguments['--filter'] \
-						and arguments['--filter'] in show['title'].lower() \
-						or not arguments['--filter']:
-
-					for episode in show['episodes']:
-						if arguments['--plain']:
-							print str(episode.id) + ":" + \
-									show['title'] + " " + episode.code
-						else:
-							# Could use a pretty_print here
-							print show['title'] + " " + episode.code
-
-						if arguments['--single']: break
-
-
-		if arguments['viewed']:
-			if re.search('^[0-9]{6}$', arguments['ID']):
-				beta.mark_viewed(arguments['ID'], note=arguments['--note'])
+	if arguments['watchlist'] or arguments['w']:
+		watchlist = beta.get_watchlist()
+		for show in watchlist:
+			if arguments['--all']:
+				for episode in show.episodes:
+					print episode.name + "    [ " + episode.beta_id + " ]"
 			else:
-				ep = []
-				unseen_list = beta.get_unseen()
-				for show in unseen_list:
-					for episode in show['episodes']:
-						if arguments['ID'].strip().lower() in show['title'].lower():
-							ep.append(episode)
+				print show.next
 
-				if len(ep) > 1:
-					print("Please try again with one of these codes")
-					for i in ep:
-						print str(i.id) + ":" + i.show['title'] + i.code
-				else:
-					print ep[0].id
-					beta.mark_viewed(ep[0].id, note=arguments['--note'])
+	# TODO if no USERNAME is given use /timeline/friends instead
+	if arguments['timeline']:
+		user = beta.search_members(arguments['USERNAME'])
+		event_list = beta.get_timeline(user['id'], nbpp=arguments['--max'] )
 
-		# TODO if no USERNAME is given use /timeline/friends instead
-		if arguments['timeline']:
-			user = beta.search_members(arguments['USERNAME'])
-			event_list = beta.get_timeline(user['id'], nbpp=arguments['--max'] )
-
-			for i in event_list:
-				i.pprint()
-
-		if arguments['test']:
-			ep_list = beta.test(arguments['<foo>'])
-
-
-	except KeyboardInterrupt:
-		print "Interrupted by user."
+		for i in event_list:
+			print(i.description)
 
 
 
 
 if __name__ == "__main__":
-	main()
+	try:
+		main()
+	except KeyboardInterrupt:
+		print "Interrupted by user."
+
+
 
 # vim: cc=80 :
