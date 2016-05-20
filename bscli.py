@@ -16,11 +16,12 @@ from docopt import docopt
 from collections import namedtuple
 import textwrap
 import string
+from datetime import datetime
 
 
 
 class Episode():
-	def __init__(self, name, code, title, note, desc, ep_id):
+	def __init__(self, name, code, title, note, desc, ep_id, date):
 		# name is show name + code
 		self.name = name
 		self.code = code
@@ -30,6 +31,10 @@ class Episode():
 		self.description = desc
 		self.beta_id = str(ep_id)
 		self.seen = False
+                # get date as an object
+                self.date = datetime.strptime(date, "%Y-%m-%d")
+                # display it in a nice way
+                self.date = self.date.strftime("%A %b %d %Y")
 
 	def pprint(self):
 		print self.name + " (" + self.title + ")"
@@ -72,7 +77,7 @@ class Event():
 
 class BetaApi():
 
-	def __init__(self, conffile):
+	def __init__(self, conffile="bscli.conf"):
 
 		self.baseurl = "http://api.betaseries.com/"
 		config = os.path.expanduser('~/.' + conffile)
@@ -177,7 +182,8 @@ class BetaApi():
 					unseen_episode['title'],
 					unseen_episode['note']['mean'],
 					unseen_episode['description'],
-					unseen_episode['id']))
+					unseen_episode['id'],
+                                        unseen_episode['date']))
 
 			shows.append(Show(show['title'], ep_list))
 
