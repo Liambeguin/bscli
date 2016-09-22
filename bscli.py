@@ -148,17 +148,16 @@ class BetaApi():
 			elif what == "delete" :
 				ret = requests.delete(self.baseurl + page, headers=heads, params=payload)
 			else :
-				print "bad usage of _query_beta() method !"
-				quit()
+				raise Exception("bad usage of _query_beta() method !")
 
-			if ret.json()['errors']:
-				for error in ret.json()['errors']:
-					print error
+			# if ret.json()['errors']:
+			# 	for error in ret.json()['errors']:
+			# 		print error
 
 		except (requests.exceptions.ReadTimeout,
 				requests.exceptions.ConnectTimeout,
 				requests.exceptions.ConnectionError) as e :
-			print "something went wrong ..."
+			raise Exception("something went wrong while connecting to the server...")
 
 		return ret
 
