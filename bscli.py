@@ -167,7 +167,7 @@ class BetaApi():
 	def get_watchlist(self):
 
 		shows = []
-		payload = { 'specials' : True, }
+		payload = { 'specials' : False, }
 
 		ret = self._query_beta('episodes/list', payload, self.token, what="get").json()
 
